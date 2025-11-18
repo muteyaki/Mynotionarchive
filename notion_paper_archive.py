@@ -1,23 +1,13 @@
 """Utilities for auto-filling Notion paper archive entries.
 
-This script queries a Notion database for pages whose title has been filled
-by the user but which are still missing extra metadata.  For each candidate
-page the script looks up metadata via the Semantic Scholar API and patches the
-missing properties inside Notion.
+This script queries a Notion database for pages whose title has been filled 
+by the user but which are still missing extra metadata.  
 
 Usage example::
 
     python notion_paper_archive.py \
+        --notion-token <your integration token> \
         --database-id <your db id> \
-        --title-property Name \
-        --authors-property Authors \
-        --date-property Published \
-        --venue-property Venue \
-        --citation-property Citation \
-        --abstract-property Abstract
-
-The script expects the NOTION_TOKEN environment variable (or the
-``--notion-token`` CLI argument) to contain a valid Notion integration token.
 """
 from __future__ import annotations
 
@@ -32,6 +22,9 @@ import requests
 
 NOTION_VERSION = "2022-06-28"
 SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+NOTION_DATABASE_ID = " " ## input your database id here
+NOTION_TOKEN= " " ## input your notion token here
+
 
 
 @dataclasses.dataclass
@@ -39,15 +32,15 @@ class PropertyConfig:
     """Mapping between logical fields and Notion property names."""
 
     title: str = "Name"
-    authors: Optional[str] = None
-    published: Optional[str] = None
-    venue: Optional[str] = None
-    citation: Optional[str] = None
-    abstract: Optional[str] = None
+    authors: Optional[str] = "Author" ## input your authors property name here
+    published: Optional[str] = "Year" ## like above
+    venue: Optional[str] = "Venue"
+    citation: Optional[str] = "Citation"
+    abstract: Optional[str] = "Abstract"
 
 
 class NotionPaperArchive:
-    def __init__(self, token: str, database_id: str, props: PropertyConfig) -> None:
+    def __init__(self, token: str, database_id: str, props: PropertyConfig):
         self.token = token
         self.database_id = database_id
         self.props = props
@@ -209,6 +202,10 @@ def build_property_value(prop: Optional[Dict], value):
 
 
 def build_rich_text(value: str) -> List[Dict]:
+    if isinstance(value, list):
+        value = ", ".join(str(v) for v in value)
+    if value is None:
+        return []
     text = value.strip()
     if not text:
         return []
@@ -221,7 +218,7 @@ def fetch_metadata(title: str) -> Optional[Dict]:
     params = {
         "query": title,
         "limit": 1,
-        "fields": "title,authors,name,year,venue,publicationDate,abstract,citationCount",
+        "fields": "title,authors,year,venue,publicationDate,abstract,citationCount",
     }
     response = requests.get(SEMANTIC_SCHOLAR_URL, params=params, timeout=30)
     if not response.ok:
@@ -269,14 +266,8 @@ def format_citation(title: Optional[str], authors: List[str], year: Optional[int
 # ---------------------------------------------------------------------------
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Auto-fill Notion paper archives")
-    parser.add_argument("--database-id", default=os.getenv("NOTION_DATABASE_ID"), help="Target Notion database ID")
-    parser.add_argument("--notion-token", default=os.getenv("NOTION_TOKEN"), help="Notion integration token")
-    parser.add_argument("--title-property", default=os.getenv("NOTION_TITLE_PROPERTY", "Name"))
-    parser.add_argument("--authors-property", default=os.getenv("NOTION_AUTHORS_PROPERTY"))
-    parser.add_argument("--date-property", default=os.getenv("NOTION_DATE_PROPERTY"))
-    parser.add_argument("--venue-property", default=os.getenv("NOTION_VENUE_PROPERTY"))
-    parser.add_argument("--citation-property", default=os.getenv("NOTION_CITATION_PROPERTY"))
-    parser.add_argument("--abstract-property", default=os.getenv("NOTION_ABSTRACT_PROPERTY"))
+    parser.add_argument("--database-id", default=NOTION_DATABASE_ID, help="Target Notion database ID")
+    parser.add_argument("--notion-token", default=NOTION_TOKEN, help="Notion integration token")
     parser.add_argument("--dry-run", action="store_true", help="Only print actions without updating Notion")
     parser.add_argument("--log-level", default="INFO", help="Python logging level (default: INFO)")
     args = parser.parse_args()
@@ -292,14 +283,7 @@ def main() -> None:
     args = parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
 
-    props = PropertyConfig(
-        title=args.title_property,
-        authors=args.authors_property,
-        published=args.date_property,
-        venue=args.venue_property,
-        citation=args.citation_property,
-        abstract=args.abstract_property,
-    )
+    props = PropertyConfig()
 
     archive = NotionPaperArchive(args.notion_token, args.database_id, props)
     archive.run(dry_run=args.dry_run)
